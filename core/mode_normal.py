@@ -15,6 +15,10 @@ from utils.number_parser import get_number
 from utils.functions import create_folder,image_ext,file_not_exist_or_empty,legalization_of_file_path,cn_space
 from utils.httprequest import download
 
+from utils.httprequest import request_session
+from lxml.html import fromstring
+from PIL import Image
+
 
 def run():
     # 检查配置文件参数合法性
@@ -118,6 +122,9 @@ def main_mode_1(movie_path, movie_info):
     poster_path = ''
     thumb_path = ''
     if config.getBoolValue("capture.get_cover_switch"):
+        if (movie_info["cover"].find("jdbstatic") >= 0):
+            logger.info(f"change URL {movie_info['cover']}")
+            replace_cover_dmm(movie_info)
         fanart_path, poster_path, thumb_path = handler_cover(movie_info, movie_target_dir)
         logger.info("cover data OK")
     
@@ -167,6 +174,44 @@ def main_mode_1(movie_path, movie_info):
             logger.info(f"find sub file at [{sub_path}], move to [{target_sub_path}]")
             shutil.move(sub_path, target_sub_path)
 
+'''
+首选封面源替换 https://pics.dmm.co.jp
+通过 javlibrary 识别码搜寻 https://www.javlibrary.com/cn/vl_searchbyid.php?keyword={ABC-123}
+'''
+def replace_cover_dmm(movie_info):
+    number_lower = movie_info["number"].lower()
+    number_split = number_lower.split("-", -1)
+    # 部分番号的图片链接有固定前缀
+    cover_path = ""
+    cover_path = cover_path.join(number_split)
+    # 发行商 ABSOLUTELY WONDERFUL 需加前缀 "118"
+    if (re.search(r"ab[a-z]", cover_path)):
+        cover_path = "118" + cover_path
+    # 发行商 FALENO star 需加前缀 "1"
+    if (re.search(r"fsdss", cover_path)):
+        cover_path = "1" + cover_path
+    movie_info["cover"] = f"https://pics.dmm.co.jp/mono/movie/adult/{cover_path}/{cover_path}pl.jpg"
+    logger.debug(f"replaced {movie_info['cover']}")
+
+
+'''
+备选封面源替换 https://javday.tv
+'''
+def replace_cover_javday(movie_info):
+    url = f'https://javday.tv/search/?wd={movie_info["number"]}'
+    session = request_session()
+    res = session.get(url)
+    if not res:
+        raise ValueError(f"get_html_by_session('{url}') failed")
+    lx = fromstring(res.text)
+    cover_url = str(lx.xpath('//div[@class="videoBox-cover"]/@style'))
+    match = re.search(r"\((.*?)\)", cover_url)
+    if match:
+        cover_url = f'https://javday.tv{match.group(1)}'
+        movie_info["cover"] = f"{cover_url}"
+    else:
+        logger.error(f"javday cover not found.")
+    logger.debug(f"replaced {movie_info['cover']}")
 
 ''' 
 封面文件下载器
@@ -188,14 +233,28 @@ def handler_cover(movie_info, movie_target_dir):
             thumb_path = f"{number}{movie_info['cn_sub']}-thumb{ext}"
         
         full_filepath = os.path.join(movie_target_dir, thumb_path)
+        logger.info(f"download {cover_url} to {full_filepath}")
         succ = image_download(cover_url, full_filepath)
-        shutil.copyfile(full_filepath, os.path.join(movie_target_dir, poster_path))
         if succ and not config.getBoolValue("capture.jellyfin"):
             shutil.copyfile(full_filepath, os.path.join(movie_target_dir, fanart_path))
             # TODO cutImage(imagecut, path, thumb_path, poster_path, bool(conf.face_uncensored_only() and not uncensored))
+        cut_censored_poster(full_filepath)
+        shutil.copyfile(full_filepath, os.path.join(movie_target_dir, poster_path))
+        os.remove(full_filepath)
     
     return fanart_path, poster_path, thumb_path
 
+'''
+有码影片海报裁切
+'''
+def cut_censored_poster(full_filepath):
+    img = Image.open(full_filepath)
+    width, height = img.size
+    if width/height > 1:
+        logger.info(f"{width} x {height}")
+        img2 = img.crop((width - int(height / 3) * 2.12, 0, width, height))
+    img2.save(full_filepath)
+    logger.info(f"poster cut OK")
 
 '''
 将影片移动至failed_output_folder配置的失败目录下。
@@ -312,6 +371,10 @@ def print_nfo_file(nfo_path, fanart_path, poster_path, thumb_path, movie_info):
         nfo_title_template = config.getStrValue("template.nfo_title_template")
         nfo_title = nfo_title_template.format(**movie_info)
         original_nfo_title = nfo_title_template.replace('{title}', '{original_title}').format(**movie_info)
+        sort_nfo_title = nfo_title.split()[0]
+        nfo_runtime = ""
+        runtime_split = re.findall(r"\d", movie_info['runtime'], re.I)
+        nfo_runtime = nfo_runtime.join(runtime_split)
 
         with open(nfo_path, "wt", encoding='UTF-8') as code:
             print('<?xml version="1.0" encoding="UTF-8" ?>', file=code)
@@ -320,11 +383,11 @@ def print_nfo_file(nfo_path, fanart_path, poster_path, thumb_path, movie_info):
                 print("  <title><![CDATA[" + nfo_title + "]]></title>", file=code)
                 print("  <originaltitle><![CDATA[" + original_nfo_title + "]]></originaltitle>",
                       file=code)
-                print("  <sorttitle><![CDATA[" + nfo_title + "]]></sorttitle>", file=code)
+                print("  <sorttitle><![CDATA[" + sort_nfo_title + "]]></sorttitle>", file=code)
             else:
                 print("  <title>" + nfo_title + "</title>", file=code)
                 print("  <originaltitle>" + original_nfo_title + "</originaltitle>", file=code)
-                print("  <sorttitle>" + nfo_title + "</sorttitle>", file=code)
+                print("  <sorttitle>" + sort_nfo_title + "</sorttitle>", file=code)
             print("  <customrating>JP-18+</customrating>", file=code)
             print("  <mpaa>JP-18+</mpaa>", file=code)
             try:
@@ -339,10 +402,10 @@ def print_nfo_file(nfo_path, fanart_path, poster_path, thumb_path, movie_info):
             else:
                 print("  <outline>" + movie_info['outline'] + "</outline>", file=code)
                 print("  <plot>" + movie_info['outline'] + "</plot>", file=code)
-            print("  <runtime>" + str(movie_info['runtime']).replace(" ", "") + "</runtime>", file=code)
+            print("  <runtime>" + nfo_runtime + "</runtime>", file=code)
             print("  <director>" + movie_info['director'] + "</director>", file=code)
             print("  <poster>" + poster_path + "</poster>", file=code)
-            print("  <thumb>" + thumb_path + "</thumb>", file=code)
+            print("  <thumb>" + poster_path + "</thumb>", file=code)
             if not jellyfin:  # jellyfin 不需要保存fanart
                 print("  <fanart>" + fanart_path + "</fanart>", file=code)
             try:

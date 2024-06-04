@@ -94,7 +94,8 @@ def cover_json_data(movie_info):
         if outline.strip() != '':
             outline = ts.translate_text(query_text=outline, translator=translator, from_language='ja', to_language='zh-CHS', timeout=10)
     
-    outline = f"{movie_info['number']} # {outline if outline.strip() != '' else title}"
+    # outline = f"{movie_info['number']} # {outline if outline.strip() != '' else title}"
+    outline = f"{outline if outline.strip() != '' else title}"
 
     movie_info["title"] = title
     movie_info["outline"] = outline
