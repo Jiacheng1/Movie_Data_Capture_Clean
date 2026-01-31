@@ -191,8 +191,11 @@ def replace_cover_dmm(movie_info):
     if (re.search(r"fsdss", cover_path)):
         cover_path = "1" + cover_path
     # 发行商 SOD star 需加前缀 "1"
-    if (re.search(r"start", cover_path)):
+    if (re.search(r"start", cover_path)) or (re.search(r"stars", cover_path)):
         cover_path = "1" + cover_path
+    # 发行商 LEO
+    if (re.search(r"umd", cover_path)):
+        cover_path = "125" + cover_path
     movie_info["cover"] = f"https://pics.dmm.co.jp/mono/movie/adult/{cover_path}/{cover_path}pl.jpg"
     logger.debug(f"replaced {movie_info['cover']}")
 

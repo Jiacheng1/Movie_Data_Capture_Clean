@@ -86,15 +86,16 @@ def getStoryline_mp(args):
 
 def getStoryline_airav(number):
     try:
-        site = secrets.choice(('airav.cc','airav4.club'))
-        url = f'https://{site}/searchresults.aspx?type=0&Search={number}'
+        # site = secrets.choice(('airav.cc','airav4.club'))
+        site = 'airavsuper2.net/cn'
+        url = f'https://{site}/search_result?kw={number}'
         session = request_session()
         res = session.get(url)
         if not res:
             raise ValueError(f"get_html_by_session('{url}') failed")
         lx = fromstring(res.text)
-        urls = lx.xpath('//div[@id="testHcsticky"]/div/ul/li/div/a[@class="ga_click"]/@href')
-        txts = lx.xpath('//div[@id="testHcsticky"]/div/ul/li/div/a[@class="ga_click"]/h3[@class="one_name ga_name"]/text()')
+        urls = lx.xpath('//div[@class="oneVideo-top"]/a/@href')
+        txts = lx.xpath('//div[@class="oneVideo-body"]/h5/text()')
         detail_url = None
         for txt, url in zip(txts, urls):
             logger.info(f"Storyline found: {txt}")
@@ -109,13 +110,13 @@ def getStoryline_airav(number):
         if not res.ok:
             raise ValueError(f"session.get('{detail_url}') failed")
         lx = fromstring(res.text)
-        t = str(lx.xpath('/html/head/title/text()')[0]).strip()
-        airav_number = str(re.findall(r'^\s*\[(.*?)]', t)[0])
-        if not re.search(number, airav_number, re.I):
-            raise ValueError(f"page number ->[{airav_number}] not match")
-        d1 = str(lx.xpath('//span[@itemprop="description"]/text()')[0])
+        # t = str(lx.xpath('/html/head/title/text()')[0]).strip()
+        # airav_number = str(re.findall(r'^\s*\[(.*?)]', t)[0])
+        # if not re.search(number, airav_number, re.I):
+        #     raise ValueError(f"page number ->[{airav_number}] not match")
+        d1 = str(lx.xpath('//div[@class="video-info"]/p/text()')[0])
         logger.debug(f"Storyline description: {d1}")
-        desc = str(lx.xpath('//span[@itemprop="description"]/text()')[0]).strip()
+        desc = str(lx.xpath('//div[@class="video-info"]/p/text()')[0]).strip()
         return desc
     except Exception as e:
         logger.debug(f"MP getStoryline_airav Error: {e},number [{number}].")
